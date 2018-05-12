@@ -70,13 +70,22 @@ def run_transaction(tran):
     #"from" account have to exist already
     acc_from = Account(tran["from"], bitshares_instance=testnet)
     
-    #create "to" account if it doesn't exist
-    try:
-        Account(tran["to"], bitshares_instance=testnet)
-    except:        
-        create_account(tran["to"])
-    
     testnet.transfer(tran["to"], tran["amount"], "ZGV", account=acc_from)
+
+#create all accounts (suppose that all new accounts are "to" accounts in the first file)
+create_count = 0
+csv = package["transaction_sets"][0]["csv_files"][0]
+print(csv)
+with open('data/' + csv) as f:
+    for line in f:
+        create_count = create_count + 1
+        print(create_count)
+        tran = parse_line(line)
+        #create "to" account if it doesn't exist
+        try:
+            Account(tran["to"], bitshares_instance=testnet)
+        except:        
+            create_account(tran["to"])
 
 #TODO: make suitable for multiple transaction_sets
 for csv in package["transaction_sets"][0]["csv_files"]:
@@ -93,5 +102,17 @@ for csv in package["transaction_sets"][0]["csv_files"]:
                 sleep_time = rt_time - dt.datetime.now()
                 print("sleep for " + str(sleep_time))
                 time.sleep(sleep_time.total_seconds())
-            run_transaction(tran)
+            try:
+                run_transaction(tran)
+            except:
+                print("transaction_failed")
                 
+#retreive all distributed money back
+csv = package["transaction_sets"][0]["csv_files"][0]
+print(csv)
+with open('data/' + csv) as f:
+    for line in f:
+        tran = parse_line(line)
+        acc_to = Account(tran["to"], bitshares_instance=testnet)
+        balance = acc_to.balances[0].amount
+        testnet.transfer("nathan", balance - 20, "ZGV", account=acc_to)
