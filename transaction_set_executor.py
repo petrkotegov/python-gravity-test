@@ -1,11 +1,14 @@
 import datetime as dt
 import json
 import time
+import traceback
 
 from bitshares import BitShares
 from bitshares.account import Account
 from bitshares.wallet import Wallet
 from bitsharesbase.account import BrainKey
+from bitshares.blockchain import Blockchain
+from bitsharesbase.chains import known_chains
 
 desired_time_range = 600 #10 minutes
 
@@ -21,10 +24,20 @@ rt_start = dt.datetime.now()
 time_scale = (package_end - package_start).total_seconds() / desired_time_range
 
 #connect to the node with python-bitshares
+known_chains["ZGV"]["chain_id"] = "60eea51a73bee66a4d744eada6f6bf180678bd63e6297f1ded36afb9872a0351"
 testnet = BitShares("ws://localhost:8090")
 wallet = testnet.wallet
+if not wallet.created():
+    wallet.create("123")
 wallet.unlock("123")
 nathan = Account("nathan", bitshares_instance=testnet)
+
+#add nathans key if needed
+nathan_public = "ZGV7EfcnKThkrhWcoDtXQyKE4fuhZVCriqGbnAUQQaLCaKD4jfNRY"
+nathan_private = "5K8ohBujJnbkk7yKLHivNP2P5xBr314Qcq452uHCM9b1PkjdnwT"
+if not wallet.getPrivateKeyForPublicKey(nathan_public):
+    wallet.addPrivateKey(nathan_private)
+    print("nathan private key added")
 
 #parse transaction parameters from line
 def parse_line(line):
@@ -87,14 +100,26 @@ with open('data/' + csv) as f:
         except:        
             create_account(tran["to"])
 
+#save initial balances
+bc = Blockchain(testnet)
+users = bc.get_all_accounts()
+with open('balances.csv', "w") as f:
+    for name in users:
+        user = Account(name, bitshares_instance=testnet)
+        balance = user.balances[0].amount if user.balances else 0
+        f.write("%s;%f\n" % (name, balance))
+
+tran_count = 0
 #TODO: make suitable for multiple transaction_sets
 for csv in package["transaction_sets"][0]["csv_files"]:
     print(csv)
     with open('data/' + csv) as f:
         for line in f:
             tran = parse_line(line)
+            tran_count = tran_count + 1
+            print(tran_count)
             print(tran)
-
+            
             rt_delay = (tran["time"] - package_start).total_seconds() / time_scale
             rt_time = rt_start + dt.timedelta(seconds=rt_delay)
 
@@ -104,8 +129,8 @@ for csv in package["transaction_sets"][0]["csv_files"]:
                 time.sleep(sleep_time.total_seconds())
             try:
                 run_transaction(tran)
-            except:
-                print("transaction_failed")
+            except Exception as e:
+                print(traceback.format_exc())
                 
 #retreive all distributed money back
 csv = package["transaction_sets"][0]["csv_files"][0]
@@ -113,6 +138,11 @@ print(csv)
 with open('data/' + csv) as f:
     for line in f:
         tran = parse_line(line)
+        if tran["to"] == "nathan":
+            continue            
         acc_to = Account(tran["to"], bitshares_instance=testnet)
+        if not acc_to.balances:
+            continue
         balance = acc_to.balances[0].amount
-        testnet.transfer("nathan", balance - 20, "ZGV", account=acc_to)
+        if balance > 20:
+            testnet.transfer("nathan", balance - 20, "ZGV", account=acc_to)
