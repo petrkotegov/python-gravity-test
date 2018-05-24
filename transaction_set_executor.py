@@ -11,9 +11,16 @@ from bitshares.blockchain import Blockchain
 from bitsharesbase.chains import known_chains
 
 desired_time_range = 600 #10 minutes
+web_socket = "ws://localhost:8090"
+chain_id = "72b543cb4858b5f3fae3adddbd6541778993b55725ffb434944729936349e40f"
+source_name = "nathan"
+source_private_key = "5K8ohBujJnbkk7yKLHivNP2P5xBr314Qcq452uHCM9b1PkjdnwT"
+source_public_key = "ZGV7EfcnKThkrhWcoDtXQyKE4fuhZVCriqGbnAUQQaLCaKD4jfNRY"
+transaction_fee = 0.0521
+data_dir = "test_data"
 
 #read input json
-with open('data/input_package.json', 'r') as package_file:
+with open(data_dir + '/input_package.json', 'r') as package_file:
     package_text = package_file.read()
 package = json.loads(package_text)
 
@@ -24,20 +31,18 @@ rt_start = dt.datetime.now()
 time_scale = (package_end - package_start).total_seconds() / desired_time_range
 
 #connect to the node with python-bitshares
-known_chains["ZGV"]["chain_id"] = "60eea51a73bee66a4d744eada6f6bf180678bd63e6297f1ded36afb9872a0351"
-testnet = BitShares("ws://localhost:8090")
+known_chains["ZGV"]["chain_id"] = chain_id
+testnet = BitShares(web_socket)
 wallet = testnet.wallet
 if not wallet.created():
     wallet.create("123")
 wallet.unlock("123")
-nathan = Account("nathan", bitshares_instance=testnet)
+source_account = Account(source_name, bitshares_instance=testnet)
 
-#add nathans key if needed
-nathan_public = "ZGV7EfcnKThkrhWcoDtXQyKE4fuhZVCriqGbnAUQQaLCaKD4jfNRY"
-nathan_private = "5K8ohBujJnbkk7yKLHivNP2P5xBr314Qcq452uHCM9b1PkjdnwT"
-if not wallet.getPrivateKeyForPublicKey(nathan_public):
-    wallet.addPrivateKey(nathan_private)
-    print("nathan private key added")
+#add source key if needed
+if not wallet.getPrivateKeyForPublicKey(source_public_key):
+    wallet.addPrivateKey(source_private_key)
+    print(source_name + " private key added")
 
 #parse transaction parameters from line
 def parse_line(line):
@@ -48,6 +53,10 @@ def parse_line(line):
     tran["to"] = split[2]
     tran["amount"] = float(split[3])
     tran["fee"] = float(split[4])
+    if tran["from"] == "nathan":
+        tran["from"] = source_name
+    if tran["to"] == "nathan":
+        tran["to"] = source_name
     return tran
 
 def create_account(acc_name):
@@ -72,8 +81,8 @@ def create_account(acc_name):
 
     testnet.create_account(
         acc_name,
-        registrar="nathan",
-        referrer="nathan",
+        registrar=source_name,
+        referrer=source_name,
         owner_key=owner_public,
         active_key=active_public,
         memo_key=memo_public)
@@ -89,7 +98,7 @@ def run_transaction(tran):
 create_count = 0
 csv = package["transaction_sets"][0]["csv_files"][0]
 print(csv)
-with open('data/' + csv) as f:
+with open(data_dir + '/' + csv) as f:
     for line in f:
         create_count = create_count + 1
         print(create_count)
@@ -113,7 +122,7 @@ tran_count = 0
 #TODO: make suitable for multiple transaction_sets
 for csv in package["transaction_sets"][0]["csv_files"]:
     print(csv)
-    with open('data/' + csv) as f:
+    with open(data_dir + '/' + csv) as f:
         for line in f:
             tran = parse_line(line)
             tran_count = tran_count + 1
@@ -135,14 +144,14 @@ for csv in package["transaction_sets"][0]["csv_files"]:
 #retreive all distributed money back
 csv = package["transaction_sets"][0]["csv_files"][0]
 print(csv)
-with open('data/' + csv) as f:
+with open(data_dir + '/' + csv) as f:
     for line in f:
         tran = parse_line(line)
-        if tran["to"] == "nathan":
+        if tran["to"] == source_name:
             continue            
         acc_to = Account(tran["to"], bitshares_instance=testnet)
         if not acc_to.balances:
             continue
         balance = acc_to.balances[0].amount
-        if balance > 20:
-            testnet.transfer("nathan", balance - 20, "ZGV", account=acc_to)
+        if balance > transaction_fee:
+            testnet.transfer(source_name, balance - transaction_fee, "ZGV", account=acc_to)
